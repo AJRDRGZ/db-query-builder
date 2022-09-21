@@ -18,22 +18,50 @@ func TestBuildSQLInsert(t *testing.T) {
 		{
 			table:  "cashboxes",
 			fields: []string{"responsable", "country", "user_id", "account"},
-			want:   "INSERT INTO cashboxes (responsable,country,user_id,account) VALUES ($1,$2,$3,$4) RETURNING id, created_at",
-		},
-		{
-			table:  "nothing",
-			fields: []string{},
-			want:   "INSERT INTO nothing () VALUES () RETURNING id, created_at",
+			want:   "INSERT INTO cashboxes (responsable, country, user_id, account) VALUES ($1, $2, $3, $4) RETURNING id, created_at",
 		},
 		{
 			table:  "one",
 			fields: []string{"one_field"},
 			want:   "INSERT INTO one (one_field) VALUES ($1) RETURNING id, created_at",
 		},
+		{
+			table:  "empty",
+			fields: []string{},
+			want:   ErrFieldsAreEmpty,
+		},
 	}
 
 	for _, tt := range tableTest {
 		assert.Equal(t, tt.want, BuildSQLInsert(tt.table, tt.fields))
+	}
+}
+
+func TestBuildSQLInsertWithID(t *testing.T) {
+	tableTest := []struct {
+		table  string
+		fields []string
+		want   string
+	}{
+		{
+			table:  "cashboxes",
+			fields: []string{"responsable", "country", "user_id", "account"},
+			want:   "INSERT INTO cashboxes (id, responsable, country, user_id, account) VALUES ($1, $2, $3, $4, $5) RETURNING created_at",
+		},
+		{
+			table:  "one",
+			fields: []string{"one_field"},
+			want:   "INSERT INTO one (id, one_field) VALUES ($1, $2) RETURNING created_at",
+		},
+		{
+			table:  "empty",
+			fields: []string{},
+			want:   ErrFieldsAreEmpty,
+		},
+	}
+
+	for _, tt := range tableTest {
+		assert.Equal(t, tt.want, BuildSQLInsertWithID(tt.table, tt.fields))
 	}
 }
 
@@ -51,7 +79,7 @@ func TestBuildSQLUpdateByID(t *testing.T) {
 		{
 			table:  "nothing",
 			fields: []string{},
-			want:   "",
+			want:   ErrFieldsAreEmpty,
 		},
 		{
 			table:  "one",
@@ -79,7 +107,7 @@ func TestBuildSQLSelect(t *testing.T) {
 		{
 			table:  "nothing",
 			fields: []string{},
-			want:   "",
+			want:   ErrFieldsAreEmpty,
 		},
 		{
 			table:  "one",
@@ -107,7 +135,7 @@ func TestBuildSQLSelectFields(t *testing.T) {
 		{
 			table:  "nothing",
 			fields: []string{},
-			want:   "",
+			want:   ErrFieldsAreEmpty,
 		},
 		{
 			table:  "one",
@@ -130,6 +158,12 @@ func TestBuildSQLWhere(t *testing.T) {
 		wantQuery string
 		wantArgs  []interface{}
 	}{
+		{
+			name:      "where with emtpy fields",
+			fields:    models.Fields{},
+			wantQuery: ErrFieldsAreEmpty,
+			wantArgs:  nil,
+		},
 		{
 			name: "where with ILIKE",
 			fields: models.Fields{
@@ -368,7 +402,7 @@ func TestBuildSQLOrderBy(t *testing.T) {
 	}
 }
 
-func Test_buildIN(t *testing.T) {
+func TestBuildIN(t *testing.T) {
 	tableTest := []struct {
 		field     models.Field
 		wantQuery string
@@ -413,4 +447,41 @@ func Test_buildIN(t *testing.T) {
 
 func parseToDate(year, month, day int) time.Time {
 	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+}
+
+func TestBuildSQLPagination(t *testing.T) {
+	tests := []struct {
+		name string
+		args models.Pagination
+		want string
+	}{
+		{
+			name: "empty pagination",
+			args: models.Pagination{},
+			want: "",
+		},
+		{
+			name: "first page",
+			args: models.Pagination{
+				Page:     0,
+				Limit:    5,
+				MaxLimit: 0,
+			},
+			want: "LIMIT 5 OFFSET 0",
+		},
+		{
+			name: "page 2",
+			args: models.Pagination{
+				Page:     2,
+				Limit:    10,
+				MaxLimit: 10,
+			},
+			want: "LIMIT 10 OFFSET 10",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, BuildSQLPagination(tt.args), "BuildSQLPagination(%v)", tt.args)
+		})
+	}
 }
