@@ -2,28 +2,8 @@ package nullhandler
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 )
-
-// ExecAffectingOneRow ejecuta una sentencia (statement),
-// esperando una sola fila afectada.
-func ExecAffectingOneRow(stmt *sql.Stmt, args ...interface{}) error {
-	r, err := stmt.Exec(args...)
-	if err != nil {
-		return fmt.Errorf("psql: could not execute statement %w", err)
-	}
-
-	rowsAffected, err := r.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("psql: could not get rows affected %w", err)
-	}
-	if rowsAffected != 1 {
-		return fmt.Errorf("psql: expected 1 row affected, got %d", rowsAffected)
-	}
-
-	return nil
-}
 
 // TimeToNull devuelve una estructura nil si la fecha está en valor (zero)
 func TimeToNull(t time.Time) sql.NullTime {

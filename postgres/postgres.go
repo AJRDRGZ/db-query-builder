@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,6 +35,25 @@ func CheckConstraint(constraints Constraints, err error) error {
 // RowScanner utilidad para leer los registros de un Query
 type RowScanner interface {
 	Scan(dest ...interface{}) error
+}
+
+// ExecAffectingOneRow ejecuta una sentencia (statement),
+// esperando una sola fila afectada.
+func ExecAffectingOneRow(stmt *sql.Stmt, args ...interface{}) error {
+	r, err := stmt.Exec(args...)
+	if err != nil {
+		return fmt.Errorf("psql: could not execute statement %w", err)
+	}
+
+	rowsAffected, err := r.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("psql: could not get rows affected %w", err)
+	}
+	if rowsAffected != 1 {
+		return fmt.Errorf("psql: expected 1 row affected, got %d", rowsAffected)
+	}
+
+	return nil
 }
 
 // BuildSQLInsert builds a query INSERT of postgres
