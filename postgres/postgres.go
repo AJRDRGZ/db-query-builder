@@ -1,13 +1,17 @@
 package postgres
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/AJRDRGZ/db-query-builder/models"
 	"github.com/lib/pq"
+
+	"github.com/AJRDRGZ/db-query-builder/models"
 )
+
+const ErrFieldsAreEmpty = "FAILED! YOU NEED TO SEND FIELDS"
 
 // Constraints is a map with a key with the constraint name and contains a value as error
 type Constraints map[string]error
@@ -29,70 +33,102 @@ func CheckConstraint(constraints Constraints, err error) error {
 
 // BuildSQLInsert builds a query INSERT of postgres
 func BuildSQLInsert(table string, fields []string) string {
-	var args, vals string
+	if len(fields) == 0 {
+		return ErrFieldsAreEmpty
+	}
+
+	args := bytes.Buffer{}
+	values := bytes.Buffer{}
 
 	for k, v := range fields {
-		args += fmt.Sprintf("%s,", v)
-		vals += fmt.Sprintf("$%d,", k+1)
+		args.WriteString(v)
+		args.WriteString(", ")
+		values.WriteString(fmt.Sprintf("$%d, ", k+1))
 	}
 
-	if len(fields) > 0 {
-		args = args[:len(args)-1]
-		vals = vals[:len(vals)-1]
+	args.Truncate(args.Len() - 2)
+	values.Truncate(values.Len() - 2)
+
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING id, created_at", table, args.String(), values.String())
+}
+
+// BuildSQLInsertWithID builds a query INSERT of postgres allowing to send the ID
+func BuildSQLInsertWithID(table string, fields []string) string {
+	if len(fields) == 0 {
+		return ErrFieldsAreEmpty
 	}
 
-	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING id, created_at", table, args, vals)
+	args := bytes.Buffer{}
+	values := bytes.Buffer{}
+	k := 1
+
+	args.WriteString("id, ")
+	values.WriteString(fmt.Sprintf("$%d, ", k))
+
+	for _, v := range fields {
+		k++
+		args.WriteString(v)
+		args.WriteString(", ")
+		values.WriteString(fmt.Sprintf("$%d, ", k))
+	}
+
+	args.Truncate(args.Len() - 2)
+	values.Truncate(values.Len() - 2)
+
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING created_at", table, args.String(), values.String())
 }
 
 // BuildSQLUpdateByID builds a query UPDATE of postgres
 func BuildSQLUpdateByID(table string, fields []string) string {
 	if len(fields) == 0 {
-		return ""
+		return ErrFieldsAreEmpty
 	}
 
-	var args string
+	args := bytes.Buffer{}
 	for k, v := range fields {
-		args += fmt.Sprintf("%s = $%d, ", v, k+1)
+		args.WriteString(fmt.Sprintf("%s = $%d, ", v, k+1))
 	}
 
-	return fmt.Sprintf("UPDATE %s SET %supdated_at = now() WHERE id = $%d", table, args, len(fields)+1)
+	return fmt.Sprintf("UPDATE %s SET %supdated_at = now() WHERE id = $%d", table, args.String(), len(fields)+1)
 }
 
 // BuildSQLSelect builds a query SELECT of postgres
 func BuildSQLSelect(table string, fields []string) string {
 	if len(fields) == 0 {
-		return ""
+		return ErrFieldsAreEmpty
 	}
 
-	var args string
+	args := bytes.Buffer{}
 	for _, v := range fields {
-		args += fmt.Sprintf("%s, ", v)
+		args.WriteString(fmt.Sprintf("%s, ", v))
 	}
 
-	return fmt.Sprintf("SELECT id, %screated_at, updated_at FROM %s", args, table)
+	return fmt.Sprintf("SELECT id, %screated_at, updated_at FROM %s", args.String(), table)
 }
 
 // BuildSQLSelectFields builds a query SELECT of postgres
 func BuildSQLSelectFields(table string, fields []string) string {
 	if len(fields) == 0 {
-		return ""
+		return ErrFieldsAreEmpty
 	}
 
-	var args string
+	args := bytes.Buffer{}
 	for _, v := range fields {
-		args += fmt.Sprintf("%s, ", v)
+		args.WriteString(fmt.Sprintf("%s, ", v))
 	}
+	args.Truncate(args.Len() - 2)
 
-	return fmt.Sprintf("SELECT %s FROM %s", args[:len(args)-2], table)
+	return fmt.Sprintf("SELECT %s FROM %s", args.String(), table)
 }
 
 // BuildSQLWhere builds and returns a query WHERE of postgres and its arguments
 func BuildSQLWhere(fields models.Fields) (string, []interface{}) {
 	if fields.IsEmpty() {
-		return "", []interface{}{}
+		return ErrFieldsAreEmpty, nil
 	}
 
-	query := "WHERE"
+	query := bytes.Buffer{}
+	query.WriteString("WHERE ")
 	length := len(fields)
 	lastFieldIndex := length - 1
 	nGroups := 0
@@ -100,10 +136,7 @@ func BuildSQLWhere(fields models.Fields) (string, []interface{}) {
 
 	paramSequence := 1
 	for key, field := range fields {
-		setChainingField(&field)
-		setOperatorField(&field)
-		setAliases(&field)
-		setGroupOpen(&field)
+		setDefaultValuesField(&field)
 
 		if field.GroupOpen {
 			nGroups++
@@ -111,65 +144,58 @@ func BuildSQLWhere(fields models.Fields) (string, []interface{}) {
 
 		switch field.Operator {
 		case models.In:
-			query = fmt.Sprintf("%s %s", query, BuildIN(field))
+			query.WriteString(BuildIN(field))
 		case models.IsNull, models.IsNotNull:
-			query = fmt.Sprintf("%s %s %s",
-				query,
-				strings.ToLower(field.Name),
-				field.Operator,
-			)
+			query.WriteString(fmt.Sprintf("%s %s", strings.ToLower(field.Name), field.Operator))
 		case models.Between:
 			// TODO: improve this function to return an error instead of string
 			if err := field.ValidateFromAndToValues(); err != nil {
 				return err.Error(), nil
 			}
 
-			query = fmt.Sprintf("%s %s %s $%d AND $%d",
-				query,
+			query.WriteString(fmt.Sprintf("%s %s $%d AND $%d",
 				strings.ToLower(field.Name),
 				field.Operator,
 				paramSequence,
 				paramSequence+1,
-			)
+			))
 
 			// Increment paramSequence because `BETWEEN` has 2 params always
 			paramSequence++
 		default:
 			// if we need to compare against the column of other table
 			if field.IsValueFromTable {
-				query = fmt.Sprintf("%s %s %s %s",
-					query,
+				query.WriteString(fmt.Sprintf("%s %s %s",
 					strings.ToLower(field.Name),
 					field.Operator,
 					strings.ToLower(field.NameValueFromTable),
-				)
+				))
 
 				break
 			}
 
 			// if we compare against a value that we define
-			query = fmt.Sprintf("%s %s %s $%d",
-				query,
+			query.WriteString(fmt.Sprintf("%s %s $%d",
 				strings.ToLower(field.Name),
 				field.Operator,
 				paramSequence,
-			)
+			))
 		}
 
 		// Close the group
 		if (nGroups > 0) && field.GroupClose {
 			nGroups--
-			query += ")"
+			query.WriteString(")")
 		}
 
 		// if exists still groups open, close them in the last field
 		if (nGroups > 0) && (key == lastFieldIndex) {
-			query += strings.Repeat(")", nGroups)
+			query.WriteString(strings.Repeat(")", nGroups))
 		}
 
 		// Add chainingKey (OR, AND) except in the last field
 		if key != lastFieldIndex {
-			query = fmt.Sprintf("%s %s", query, field.ChainingKey)
+			query.WriteString(fmt.Sprintf(" %s ", field.ChainingKey))
 		}
 
 		if field.Operator == models.In ||
@@ -191,7 +217,7 @@ func BuildSQLWhere(fields models.Fields) (string, []interface{}) {
 		paramSequence++
 	}
 
-	return query, args
+	return query.String(), args
 }
 
 // BuildSQLOrderBy builds and returns a query ORDER BY of postgres and its arguments
@@ -200,22 +226,20 @@ func BuildSQLOrderBy(sorts models.SortFields) string {
 		return ""
 	}
 
-	query, length := "ORDER BY", len(sorts)
+	query := bytes.Buffer{}
+	query.WriteString("ORDER BY ")
 
-	for key, sort := range sorts {
+	for _, sort := range sorts {
 		setSortFieldOrder(&sort)
 		setSortFieldAliases(&sort)
-		query = fmt.Sprintf("%s %s %s",
-			query,
+		query.WriteString(fmt.Sprintf("%s %s, ",
 			strings.ToLower(sort.Name),
 			sort.Order,
-		)
-		if key != (length - 1) {
-			query = fmt.Sprintf("%s,", query)
-		}
+		))
 	}
+	query.Truncate(query.Len() - 2)
 
-	return query
+	return query.String()
 }
 
 // BuildSQLPagination builds and returns a query OFFSET LIMIT of postgres for pagination
@@ -223,6 +247,7 @@ func BuildSQLPagination(pag models.Pagination) string {
 	if pag.Limit == 0 && pag.Page == 0 {
 		return ""
 	}
+
 	if pag.MaxLimit == 0 {
 		pag.MaxLimit = 20
 	}
@@ -230,6 +255,7 @@ func BuildSQLPagination(pag models.Pagination) string {
 	if pag.Limit == 0 || pag.Limit > pag.MaxLimit {
 		pag.Limit = pag.MaxLimit
 	}
+
 	if pag.Page == 0 {
 		pag.Page = 1
 	}
@@ -246,13 +272,13 @@ func ColumnsAliased(fields []string, aliased string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	columns := ""
+	columns := bytes.Buffer{}
 	for _, v := range fields {
-		columns += fmt.Sprintf("%s.%s, ", aliased, v)
+		columns.WriteString(fmt.Sprintf("%s.%s, ", aliased, v))
 	}
 
 	return fmt.Sprintf("%s.id, %s%s.created_at, %s.updated_at",
-		aliased, columns, aliased, aliased)
+		aliased, columns.String(), aliased, aliased)
 }
 
 // ColumnsAliasedWithDefault return the column names with aliased of the table
@@ -260,13 +286,14 @@ func ColumnsAliasedWithDefault(fields []string, aliased string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	columns := ""
+
+	columns := bytes.Buffer{}
 	for _, v := range fields {
-		columns += fmt.Sprintf("%s.%s, ", aliased, v)
+		columns.WriteString(fmt.Sprintf("%s.%s, ", aliased, v))
 	}
 
 	return fmt.Sprintf("%s.id, %s%s.created_at, %s.updated_at",
-		aliased, columns, aliased, aliased)
+		aliased, columns.String(), aliased, aliased)
 }
 
 // CheckError validate a postgres error
@@ -289,7 +316,7 @@ func BuildIN(field models.Field) string {
 	// if the IN failed, return mistakeIN for not select nothing in the field
 	mistakeIN := fmt.Sprintf("%s = 0", nameField)
 
-	var args string
+	args := bytes.Buffer{}
 	switch items := field.Value.(type) {
 	case []uint:
 		if len(items) == 0 {
@@ -297,33 +324,40 @@ func BuildIN(field models.Field) string {
 		}
 
 		for _, item := range items {
-			args += fmt.Sprintf("%d,", item)
+			args.WriteString(fmt.Sprintf("%d,", item))
 		}
 
-		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args, ","))
+		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args.String(), ","))
 	case []int:
 		if len(items) == 0 {
 			return mistakeIN
 		}
 
 		for _, item := range items {
-			args += fmt.Sprintf("%d,", item)
+			args.WriteString(fmt.Sprintf("%d,", item))
 		}
 
-		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args, ","))
+		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args.String(), ","))
 	case []string:
 		if len(items) == 0 {
 			return mistakeIN
 		}
 
 		for _, item := range items {
-			args += fmt.Sprintf("'%s',", item)
+			args.WriteString(fmt.Sprintf("'%s',", item))
 		}
 
-		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args, ","))
+		return fmt.Sprintf("%s IN (%s)", nameField, strings.TrimSuffix(args.String(), ","))
 	default:
 		return mistakeIN
 	}
+}
+
+func setDefaultValuesField(field *models.Field) {
+	setChainingField(field)
+	setOperatorField(field)
+	setAliases(field)
+	setGroupOpen(field)
 }
 
 func setChainingField(field *models.Field) {
