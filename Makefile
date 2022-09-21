@@ -36,5 +36,6 @@ linter:
 
 build:
 	echo "$(ccyellow)Building app...$(ccend)"
-	go build -o api .
+	go build ./models
+	go build ./postgres
 	echo "$(ccgreen)Finish build!$(ccend)"

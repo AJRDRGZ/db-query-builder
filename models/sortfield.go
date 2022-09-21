@@ -38,4 +38,3 @@ func (ss SortFields) ValidateNames(allowedFields []string) error {
 
 	return nil
 }
-
