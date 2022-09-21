@@ -31,6 +31,11 @@ func CheckConstraint(constraints Constraints, err error) error {
 	return constraintErr
 }
 
+// RowScanner utilidad para leer los registros de un Query
+type RowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
 // BuildSQLInsert builds a query INSERT of postgres
 func BuildSQLInsert(table string, fields []string) string {
 	if len(fields) == 0 {
