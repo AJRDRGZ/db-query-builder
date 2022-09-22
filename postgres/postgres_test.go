@@ -485,3 +485,56 @@ func TestBuildSQLPagination(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildQueryArgsAndPagination(t *testing.T) {
+	type args struct {
+		initialSQL string
+		filter     models.Fields
+		sort       models.SortFields
+		pag        models.Pagination
+	}
+	tests := []struct {
+		name      string
+		args      args
+		wantQuery string
+		wantArgs  []interface{}
+	}{
+		{
+			name: "query args and pagination all data",
+			args: args{
+				initialSQL: "SELECT alpha, beta, gama FROM mytable",
+				filter:     models.Fields{{Name: "id", Value: 123}},
+				sort:       models.SortFields{{Name: "pipe", Order: "ASC"}},
+				pag:        models.Pagination{Page: 1, Limit: 10, MaxLimit: 20},
+			},
+			wantQuery: "SELECT alpha, beta, gama FROM mytable WHERE id = $1 ORDER BY pipe ASC LIMIT 10 OFFSET 0",
+			wantArgs:  []interface{}{123},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := BuildQueryArgsAndPagination(tt.args.initialSQL, tt.args.filter, tt.args.sort, tt.args.pag)
+			assert.Equalf(t, tt.wantQuery, got, "BuildQueryArgsAndPagination(%v, %v, %v, %v)", tt.args.initialSQL, tt.args.filter, tt.args.sort, tt.args.pag)
+			assert.Equalf(t, tt.wantArgs, got1, "BuildQueryArgsAndPagination(%v, %v, %v, %v)", tt.args.initialSQL, tt.args.filter, tt.args.sort, tt.args.pag)
+		})
+	}
+}
+
+func TestBuildSQLDelete(t *testing.T) {
+	tests := []struct {
+		name  string
+		table string
+		want  string
+	}{
+		{
+			name:  "normal delete",
+			table: "users",
+			want:  "DELETE FROM users WHERE id = $1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, BuildSQLDelete(tt.table), "BuildSQLDelete(%v)", tt.table)
+		})
+	}
+}
