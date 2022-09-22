@@ -292,6 +292,22 @@ func BuildSQLPagination(pag models.Pagination) string {
 	return pagination
 }
 
+// BuildQueryArgsAndPagination builds and returns a query adding the filter + sort + pagination
+func BuildQueryArgsAndPagination(initialSQL string, filter models.Fields, sort models.SortFields, pag models.Pagination) (string, []interface{}) {
+	conditions, args := BuildSQLWhere(filter)
+	query := initialSQL + " " + conditions
+
+	query += " " + BuildSQLOrderBy(sort)
+	query += " " + BuildSQLPagination(pag)
+
+	return query, args
+}
+
+// BuildSQLDelete builds and returns a query with the DELETE statement
+func BuildSQLDelete(table string) string {
+	return fmt.Sprintf("DELETE FROM %s WHERE id = $1", table)
+}
+
 // ColumnsAliased return the column names with aliased of the table
 func ColumnsAliased(fields []string, aliased string) string {
 	if len(fields) == 0 {
