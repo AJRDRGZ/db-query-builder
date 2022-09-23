@@ -149,7 +149,7 @@ func BuildSQLSelectFields(table string, fields []string) string {
 // BuildSQLWhere builds and returns a query WHERE of postgres and its arguments
 func BuildSQLWhere(fields models.Fields) (string, []interface{}) {
 	if fields.IsEmpty() {
-		return ErrFieldsAreEmpty, nil
+		return "", nil
 	}
 
 	query := bytes.Buffer{}

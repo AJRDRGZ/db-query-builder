@@ -161,7 +161,7 @@ func TestBuildSQLWhere(t *testing.T) {
 		{
 			name:      "where with emtpy fields",
 			fields:    models.Fields{},
-			wantQuery: ErrFieldsAreEmpty,
+			wantQuery: "",
 			wantArgs:  nil,
 		},
 		{
